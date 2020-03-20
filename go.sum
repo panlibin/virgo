@@ -1,2 +1,4 @@
+github.com/go-sql-driver/mysql v1.5.0 h1:ozyZYNQW3x3HtqT1jira07DN2PArx2v7/mN66gGcHOs=
+github.com/go-sql-driver/mysql v1.5.0/go.mod h1:DCzpHaOWr8IXmIStZouvnhqoel9Qv2LBy8hT2VhHyBg=
 github.com/panlibin/vglog v0.0.0-20200317084509-89ab82f206ad h1:KskdRANNHTaiXnKqc32/qR633F+2nmXKArVd9WZkW6I=
 github.com/panlibin/vglog v0.0.0-20200317084509-89ab82f206ad/go.mod h1:aEAG2vUCahNPexsaQn80+KmMEeFL+vJvC3VOtIwsmRU=

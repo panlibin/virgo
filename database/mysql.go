@@ -135,11 +135,13 @@ func (m *mysqlInstance) addQuery(queryCtx *mysqlQueryContext) {
 // Mysql 数据库管理对象
 type Mysql struct {
 	arrDb []*mysqlInstance
+	p     virgo.IProcedure
 }
 
 // NewMysql 新建
-func NewMysql() *Mysql {
+func NewMysql(p virgo.IProcedure) *Mysql {
 	pDb := new(Mysql)
+	pDb.p = p
 	return pDb
 }
 
@@ -219,51 +221,37 @@ func (m *Mysql) Exec(dbIdx uint32, query string, args ...interface{}) (res sql.R
 }
 
 // AsyncQuery 查询多行,回调
-func (m *Mysql) AsyncQuery(p virgo.IProcedure, cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) error {
-	if p == nil || cb == nil {
+func (m *Mysql) AsyncQuery(cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) error {
+	if cb == nil {
 		return ErrCallbackIsNil
 	}
 
 	callbackChan := m.pushOperator(dbIdx, query, args, queryTypeQuery, true)
-
-	go func() {
-		ret := <-callbackChan
-		close(callbackChan)
-		p.SyncTask(cb, ret...)
-	}()
+	m.p.AsyncTask(m.waitCallback, cb, callbackChan)
 
 	return nil
 }
 
 // AsyncQueryRow 查询一行,回调
-func (m *Mysql) AsyncQueryRow(p virgo.IProcedure, cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) error {
-	if p == nil || cb == nil {
+func (m *Mysql) AsyncQueryRow(cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) error {
+	if cb == nil {
 		return ErrCallbackIsNil
 	}
 
 	callbackChan := m.pushOperator(dbIdx, query, args, queryTypeQueryRow, true)
-
-	go func() {
-		ret := <-callbackChan
-		close(callbackChan)
-		p.SyncTask(cb, ret...)
-	}()
+	m.p.AsyncTask(m.waitCallback, cb, callbackChan)
 
 	return nil
 }
 
 // AsyncExec 执行,回调
-func (m *Mysql) AsyncExec(p virgo.IProcedure, cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) {
-	needCb := (p != nil && cb != nil)
+func (m *Mysql) AsyncExec(cb func([]interface{}), dbIdx uint32, query string, args ...interface{}) {
+	needCb := (cb != nil)
 
 	callbackChan := m.pushOperator(dbIdx, query, args, queryTypeExec, needCb)
 
 	if needCb {
-		go func() {
-			ret := <-callbackChan
-			close(callbackChan)
-			p.SyncTask(cb, ret...)
-		}()
+		m.p.AsyncTask(m.waitCallback, cb, callbackChan)
 	}
 }
 
@@ -287,4 +275,12 @@ func (m *Mysql) pushOperator(dbIdx uint32, query string, args []interface{}, que
 	db.addQuery(queryCtx)
 
 	return callbackChan
+}
+
+func (m *Mysql) waitCallback(args []interface{}) {
+	cb := args[0].(func([]interface{}))
+	callbackChan := args[1].(chan []interface{})
+	ret := <-callbackChan
+	close(callbackChan)
+	m.p.SyncTask(cb, ret...)
 }

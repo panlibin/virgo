@@ -53,6 +53,18 @@ func EncodeHexToUpperString(src []byte) string {
 	return string(dst)
 }
 
+// FormatInt32ArrayToString 将[]int32格式化成字符串
+func FormatInt32ArrayToString(arr []int32, sep string) string {
+	if len(arr) == 0 {
+		return ""
+	}
+	strs := make([]string, len(arr))
+	for i, v := range arr {
+		strs[i] = strconv.Itoa(int(v))
+	}
+	return strings.Join(strs, sep)
+}
+
 // SplitToInt32Array 将字符串分割成[]int32
 func SplitToInt32Array(s string, sep string) ([]int32, error) {
 	arrStr := strings.Split(s, sep)

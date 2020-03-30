@@ -109,7 +109,7 @@ func (m *mysqlInstance) run() {
 
 		if queryCtx.async {
 			if queryCtx.cb != nil {
-				m.p.SyncTask(queryCtx.cb, queryCtx.ctx, ret, err)
+				go m.p.SyncTask(queryCtx.cb, queryCtx.ctx, ret, err)
 			}
 		} else {
 			if queryCtx.callbackChan != nil {

@@ -1,14 +1,16 @@
 package virgo
 
 import (
-	"syscall"
-	"os/signal"
-	"runtime"
-	"github.com/panlibin/vglog"
 	"os"
+	"os/signal"
+	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	logger "github.com/panlibin/vglog"
 )
 
 const (
@@ -21,8 +23,8 @@ const _DefaultMainChannelSize = 1024
 
 type task struct {
 	taskType int32
-	f func([]interface{})
-	args []interface{}
+	f        func([]interface{})
+	args     []interface{}
 }
 
 // IProcedure 主线程接口
@@ -36,18 +38,18 @@ type IProcedure interface {
 
 // Procedure 主线程
 type Procedure struct {
-	wg sync.WaitGroup
+	wg       sync.WaitGroup
 	mainChan chan *task
-	pending int32
+	pending  int32
 	quitFlag int32
-	service IService
+	service  IService
 }
 
 // NewProcedure 创建
 func NewProcedure(s IService) *Procedure {
 	p := &Procedure{
 		mainChan: make(chan *task, _DefaultMainChannelSize),
-		service: s,
+		service:  s,
 	}
 	return p
 }
@@ -56,8 +58,8 @@ func NewProcedure(s IService) *Procedure {
 func (p *Procedure) SyncTask(f func([]interface{}), args ...interface{}) {
 	atomic.AddInt32(&p.pending, 1)
 	p.mainChan <- &task{
-		f: f,
-		args: args,
+		f:        f,
+		args:     args,
 		taskType: taskTypeNew,
 	}
 }
@@ -65,7 +67,7 @@ func (p *Procedure) SyncTask(f func([]interface{}), args ...interface{}) {
 // AsyncTask 主线程外执行函数,不直接go,为了统计运行中的任务
 func (p *Procedure) AsyncTask(f func([]interface{}), args ...interface{}) {
 	atomic.AddInt32(&p.pending, 1)
-	go func ()  {
+	go func() {
 		protectedExecute(f, args)
 		p.mainChan <- &task{taskType: taskTypeFinish}
 	}()
@@ -73,7 +75,7 @@ func (p *Procedure) AsyncTask(f func([]interface{}), args ...interface{}) {
 
 // AfterFunc 主线程内定时回调
 func (p *Procedure) AfterFunc(d time.Duration, f func([]interface{}), args ...interface{}) *time.Timer {
-	return time.AfterFunc(d, func ()  {
+	return time.AfterFunc(d, func() {
 		p.SyncTask(f, args...)
 	})
 }
@@ -81,7 +83,7 @@ func (p *Procedure) AfterFunc(d time.Duration, f func([]interface{}), args ...in
 // Start 启动
 func (p *Procedure) Start() {
 	p.run()
-	p.SyncTask(func([]interface{}){
+	p.SyncTask(func([]interface{}) {
 		p.service.OnInit(p)
 	})
 }
@@ -89,9 +91,9 @@ func (p *Procedure) Start() {
 // Stop 停止
 func (p *Procedure) Stop() {
 	atomic.AddInt32(&p.pending, 1)
-	go func ()  {
+	go func() {
 		p.mainChan <- &task{
-			f: func([]interface{}){
+			f: func([]interface{}) {
 				p.service.OnRelease()
 			},
 			taskType: taskTypeQuit,
@@ -103,6 +105,7 @@ func (p *Procedure) run() {
 	p.wg.Add(1)
 	go func() {
 		for pTask := range p.mainChan {
+			logger.Debug(runtime.FuncForPC(reflect.ValueOf(pTask.f).Pointer()).Name())
 			switch pTask.taskType {
 			case taskTypeNew:
 				protectedExecute(pTask.f, pTask.args)
@@ -129,7 +132,7 @@ func (p *Procedure) waitQuit() {
 		signal.Notify(sigChan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 		bQuit := false
 		for !bQuit {
-			sig := <- sigChan
+			sig := <-sigChan
 			if sig == os.Signal(syscall.SIGINT) || sig == os.Signal(syscall.SIGTERM) {
 				bQuit = true
 			}

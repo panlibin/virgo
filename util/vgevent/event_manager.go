@@ -8,16 +8,16 @@ type EventManager struct {
 
 // NewEventManager 创建事件管理器
 func NewEventManager() *EventManager {
-	pObj := new(EventManager)
-	pObj.pool = make(map[EventType]map[uint32]func(IEvent))
-	return pObj
+	return &EventManager{
+		pool: make(map[EventType]map[uint32]func(IEvent), 64),
+	}
 }
 
 // Register 注册事件回调
 func (em *EventManager) Register(eventType EventType, f func(IEvent)) (eventID uint32) {
 	mapListener, exist := em.pool[eventType]
 	if !exist {
-		mapListener = make(map[uint32]func(IEvent))
+		mapListener = make(map[uint32]func(IEvent), 4)
 		em.pool[eventType] = mapListener
 	}
 	eventID = em.genEventID()
@@ -36,7 +36,7 @@ func (em *EventManager) Unregister(eventType EventType, eventID uint32) {
 
 // Clear 清空
 func (em *EventManager) Clear() {
-	em.pool = make(map[EventType]map[uint32]func(IEvent))
+	em.pool = make(map[EventType]map[uint32]func(IEvent), 64)
 	em.eventIDMax = 0
 }
 

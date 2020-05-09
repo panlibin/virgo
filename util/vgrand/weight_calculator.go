@@ -34,8 +34,9 @@ type WeightCalculator struct {
 
 // NewWeightCalculator 创建权重计算器
 func NewWeightCalculator() *WeightCalculator {
-	pObj := new(WeightCalculator)
-	return pObj
+	return &WeightCalculator{
+		arrElement: make(WeightArray, 0, 16),
+	}
 }
 
 // AddElement 添加元素

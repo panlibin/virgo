@@ -32,32 +32,19 @@ type mysqlQueryContext struct {
 }
 
 type mysqlInstance struct {
-	p               virgo.IProcedure
-	db              *sql.DB
-	queryChan       chan *mysqlQueryContext
-	wg              sync.WaitGroup
-	aliveTicker     *time.Ticker
-	cancelAliveCtx  context.Context
-	cancelAliveFunc context.CancelFunc
+	p         virgo.IProcedure
+	db        *sql.DB
+	queryChan chan *mysqlQueryContext
+	wg        *sync.WaitGroup
 }
 
-func (m *mysqlInstance) open(dsn string) (err error) {
-	var db *sql.DB
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		return
-	}
-	err = db.Ping()
-	if err != nil {
-		return
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+func (m *mysqlInstance) open(db *sql.DB, wg *sync.WaitGroup) {
 	m.db = db
+	m.wg = wg
 	m.queryChan = make(chan *mysqlQueryContext, defaultQueryChannelSize)
 
+	m.wg.Add(1)
 	go m.run()
-	go m.keepAlive()
 
 	return
 }
@@ -66,24 +53,9 @@ func (m *mysqlInstance) close() {
 	if m.queryChan != nil {
 		m.queryChan <- nil
 	}
-
-	if m.aliveTicker != nil {
-		m.aliveTicker.Stop()
-		m.aliveTicker = nil
-	}
-	if m.cancelAliveFunc != nil {
-		m.cancelAliveFunc()
-		m.cancelAliveFunc = nil
-	}
-
-	m.wg.Wait()
-	if m.db != nil {
-		m.db.Close()
-	}
 }
 
 func (m *mysqlInstance) run() {
-	m.wg.Add(1)
 	defer m.wg.Done()
 	for queryCtx := range m.queryChan {
 		if queryCtx == nil {
@@ -120,53 +92,53 @@ func (m *mysqlInstance) run() {
 	close(m.queryChan)
 }
 
-func (m *mysqlInstance) keepAlive() {
-	m.cancelAliveCtx, m.cancelAliveFunc = context.WithCancel(context.Background())
-	m.aliveTicker = time.NewTicker(time.Minute * 10)
-	bQuit := false
-	for !bQuit {
-		select {
-		case <-m.aliveTicker.C:
-			m.db.Ping()
-		case <-m.cancelAliveCtx.Done():
-			bQuit = true
-		}
-	}
-}
-
 func (m *mysqlInstance) addQuery(queryCtx *mysqlQueryContext) {
 	m.queryChan <- queryCtx
 }
 
 // Mysql 数据库管理对象
 type Mysql struct {
-	arrDb []*mysqlInstance
-	p     virgo.IProcedure
+	arrDb           []*mysqlInstance
+	p               virgo.IProcedure
+	db              *sql.DB
+	aliveTicker     *time.Ticker
+	wg              *sync.WaitGroup
+	cancelAliveCtx  context.Context
+	cancelAliveFunc context.CancelFunc
 }
 
 // NewMysql 新建
 func NewMysql(p virgo.IProcedure) *Mysql {
-	pDb := new(Mysql)
-	pDb.p = p
-	return pDb
+	return &Mysql{
+		p:  p,
+		wg: &sync.WaitGroup{},
+	}
 }
 
 // Open 连接数据库
 func (m *Mysql) Open(dsn string, instNum int32) error {
-	m.arrDb = make([]*mysqlInstance, instNum)
 	var err error
+	m.arrDb = make([]*mysqlInstance, instNum)
+	var db *sql.DB
+	db, err = sql.Open("mysql", dsn)
+	if err != nil {
+		return err
+	}
+	err = db.Ping()
+	if err != nil {
+		return err
+	}
+	db.SetMaxOpenConns(int(instNum))
+	db.SetMaxIdleConns(int(instNum))
+	m.db = db
+
+	go m.keepAlive()
+
 	for i := int32(0); i < instNum; i++ {
 		pDbInst := new(mysqlInstance)
 		pDbInst.p = m.p
-		err = pDbInst.open(dsn)
-		if err != nil {
-			break
-		}
+		pDbInst.open(db, m.wg)
 		m.arrDb[i] = pDbInst
-	}
-
-	if err != nil {
-		m.Close()
 	}
 
 	return err
@@ -174,12 +146,24 @@ func (m *Mysql) Open(dsn string, instNum int32) error {
 
 // Close 关闭数据库连接
 func (m *Mysql) Close() {
+	if m.aliveTicker != nil {
+		m.aliveTicker.Stop()
+		m.aliveTicker = nil
+	}
+	if m.cancelAliveFunc != nil {
+		m.cancelAliveFunc()
+		m.cancelAliveFunc = nil
+	}
 	if m.arrDb != nil {
 		for _, pDb := range m.arrDb {
 			if pDb != nil {
 				pDb.close()
 			}
 		}
+	}
+	m.wg.Wait()
+	if m.db != nil {
+		m.db.Close()
 	}
 }
 
@@ -266,4 +250,18 @@ func (m *Mysql) pushOperator(dbIdx uint32, query string, args []interface{}, que
 	db.addQuery(queryCtx)
 
 	return callbackChan
+}
+
+func (m *Mysql) keepAlive() {
+	m.cancelAliveCtx, m.cancelAliveFunc = context.WithCancel(context.Background())
+	m.aliveTicker = time.NewTicker(time.Minute * 10)
+	bQuit := false
+	for !bQuit {
+		select {
+		case <-m.aliveTicker.C:
+			m.db.Ping()
+		case <-m.cancelAliveCtx.Done():
+			bQuit = true
+		}
+	}
 }
